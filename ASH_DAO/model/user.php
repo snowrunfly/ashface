@@ -7,256 +7,136 @@
 	$Id: user.php 1078 2011-03-30 02:00:29Z monkey $
 */
 
-!defined('IN_ASH') && exit('Access Denied');
+! defined ( 'IN_ASH' ) && exit ( 'Access Denied' );
 
-class usermodel {
-
-	var $db;
-	var $base;
-
-	function __construct(&$base) {
-		$this->usermodel($base);
-	}
-
-	function usermodel(&$base) {
-		$this->base = $base;
-		$this->db = $base->db;
-	}
-
-	function get_user_by_uid($uid) {
-		$arr = $this->db->fetch_first("SELECT * FROM ".ASH_DBTABLEPRE."user WHERE user_id='$uid'");
-		return $arr;
-	}
-
-	function get_user_by_name($username) {
-		$arr = $this->db->fetch_first("SELECT * FROM ".ASH_DBTABLEPRE."user WHERE name='$username'");
-		return $arr;
-	}
-
-	function get_user_by_email($email) {
-		$arr = $this->db->fetch_first("SELECT * FROM ".ASH_DBTABLEPRE."user WHERE email='$email'");
-		return $arr;
-	}
-
-	function check_username($username) {
-		$guestexp = '\xA1\xA1|\xAC\xA3|^Guest|^\xD3\xCE\xBF\xCD|\xB9\x43\xAB\xC8';
-		$len = $this->dstrlen($username);
-		if($len > 15 || $len < 3 || preg_match("/\s+|^c:\\con\\con|[%,\*\"\s\<\>\&]|$guestexp/is", $username)) {
-			return FALSE;
-		} else {
-			return TRUE;
-		}
-	}
-
-	function dstrlen($str) {
-		if(strtolower(ASH_CHARSET) != 'utf-8') {
-			return strlen($str);
-		}
-		$count = 0;
-		for($i = 0; $i < strlen($str); $i++){
-			$value = ord($str[$i]);
-			if($value > 127) {
-				$count++;
-				if($value >= 192 && $value <= 223) $i++;
-				elseif($value >= 224 && $value <= 239) $i = $i + 2;
-				elseif($value >= 240 && $value <= 247) $i = $i + 3;
-		    	}
-	    		$count++;
-		}
-		return $count;
-	}
-
-	//todo
-	function check_usernamecensor($username) {
-		$_CACHE['badwords'] = $this->base->cache('badwords');
-		$censorusername = $this->base->get_setting('censorusername');
-		$censorusername = $censorusername['censorusername'];
-		$censorexp = '/^('.str_replace(array('\\*', "\r\n", ' '), array('.*', '|', ''), preg_quote(($censorusername = trim($censorusername)), '/')).')$/i';
-		$usernamereplaced = isset($_CACHE['badwords']['findpattern']) && !empty($_CACHE['badwords']['findpattern']) ? @preg_replace($_CACHE['badwords']['findpattern'], $_CACHE['badwords']['replace'], $username) : $username;
-		if(($usernamereplaced != $username) || ($censorusername && preg_match($censorexp, $username))) {
-			return FALSE;
-		} else {
-			return TRUE;
-		}
-	}
-
-	function check_nameexists($username) {
-		$data = $this->db->result_first("SELECT username FROM ".ASH_DBTABLEPRE."user WHERE name='$username'");
-		return $data;
-	}
-
-	function check_emailformat($email) {
-		return strlen($email) > 6 && preg_match("/^[\w\-\.]+@[\w\-\.]+(\.\w+)+$/", $email);
-	}
-
-	//todo
-	function check_emailaccess($email) {
-		$setting = $this->base->get_setting(array('accessemail', 'censoremail'));
-		$accessemail = $setting['accessemail'];
-		$censoremail = $setting['censoremail'];
-		$accessexp = '/('.str_replace("\r\n", '|', preg_quote(trim($accessemail), '/')).')$/i';
-		$censorexp = '/('.str_replace("\r\n", '|', preg_quote(trim($censoremail), '/')).')$/i';
-		if($accessemail || $censoremail) {
-			if(($accessemail && !preg_match($accessexp, $email)) || ($censoremail && preg_match($censorexp, $email))) {
-				return FALSE;
-			} else {
-				return TRUE;
-			}
-		} else {
-			return TRUE;
-		}
-	}
-
-	function check_emailexists($email, $username = '') {
-		$sqladd = $username !== '' ? "AND username<>'$username'" : '';
-		$email = $this->db->result_first("SELECT email FROM  ".ASH_DBTABLEPRE."user WHERE email='$email' $sqladd");
-		return $email;
-	}
-
-	//todo
-	function check_login($username, $password, &$user) {
-		$user = $this->get_user_by_name($username);
-		if(empty($user['username'])) {
-			return -1;
-		} elseif($user['password'] != md5(md5($password).$user['salt'])) {
-			return -2;
-		}
-		return $user['uid'];
-	}
-
-	//todo
-	function add_user($username, $password, $email, $uid = 0, $questionid = '', $answer = '', $regip = '') {
-		$regip = empty($regip) ? $this->base->onlineip : $regip;
-		$salt = substr(uniqid(rand()), -6);
-		$password = md5(md5($password).$salt);
-		$sqladd = $uid ? "uid='".intval($uid)."'," : '';
-		$sqladd .= $questionid > 0 ? " secques='".$this->quescrypt($questionid, $answer)."'," : " secques='',";
-		$this->db->query("INSERT INTO ".ASH_DBTABLEPRE."user SET $sqladd username='$username', password='$password', email='$email', regip='$regip', regdate='".$this->base->time."', salt='$salt'");
-		$uid = $this->db->insert_id();
-		$this->db->query("INSERT INTO ".ASH_DBTABLEPRE."memberfields SET uid='$uid'");
-		return $uid;
+class user {
+	
+	protected $user_id;
+	protected $email;
+	protected $name;
+	protected $password; //here password should be explicit clear text
+	protected $random_code;
+	protected $activate_status;
+	protected $expired_time;
+	
+	//TODO: This need to be implment 
+	function __construct($user_id, $email, $name, $password, $random_code, $activate_status, $expired_time) {
+		$this->user_id = $user_id;
+		$this->email = $email;
+		$this->name = $name;
+		$this->password = $password;
+		$this->random_code = $random_code;
+		$this->activate_status = $activate_status;
+		$this->expired_time = $expired_time;
 	}
 	
-	function add_row($email, $name, $password) {
-		
-		$salt = substr(uniqid(rand()), -6);
-		echo " salt: ".$salt;
-		$password = md5(md5($password).$salt);
-		//$sqladd = $uid ? "uid='".intval($uid)."'," : '';
-		//$sqladd .= $questionid > 0 ? " secques='".$this->quescrypt($questionid, $answer)."'," : " secques='',";
-		$this->db->query("INSERT INTO ".ASH_DBTABLEPRE."user SET account='$email', nickname='$name', password='$password', random_code='$salt'");
-		$uid = $this->db->insert_id();
-		echo " uid: ".$uid;
-		//$this->db->query("INSERT INTO ".ASH_DBTABLEPRE."memberfields SET uid='$uid'");
-		return $uid;
-	}
-
-	//todo
-	function edit_user($username, $oldpw, $newpw, $email, $ignoreoldpw = 0, $questionid = '', $answer = '') {
-		$data = $this->db->fetch_first("SELECT username, uid, password, salt FROM ".ASH_DBTABLEPRE."user WHERE username='$username'");
-
-		if($ignoreoldpw) {
-			$isprotected = $this->db->result_first("SELECT COUNT(*) FROM ".ASH_DBTABLEPRE."protecteduser WHERE uid = '$data[uid]'");
-			if($isprotected) {
-				return -8;
-			}
-		}
-
-		if(!$ignoreoldpw && $data['password'] != md5(md5($oldpw).$data['salt'])) {
-			return -1;
-		}
-
-		$sqladd = $newpw ? "password='".md5(md5($newpw).$data['salt'])."'" : '';
-		$sqladd .= $email ? ($sqladd ? ',' : '')." email='$email'" : '';
-		if($questionid !== '') {
-			if($questionid > 0) {
-				$sqladd .= ($sqladd ? ',' : '')." secques='".$this->quescrypt($questionid, $answer)."'";
-			} else {
-				$sqladd .= ($sqladd ? ',' : '')." secques=''";
-			}
-		}
-		if($sqladd || $emailadd) {
-			$this->db->query("UPDATE ".ASH_DBTABLEPRE."user SET $sqladd WHERE name='$username'");
-			return $this->db->affected_rows();
-		} else {
-			return -7;
-		}
-	}
-
-	//todo
-	function delete_user($uidsarr) {
-		$uidsarr = (array)$uidsarr;
-		if(!$uidsarr) {
-			return 0;
-		}
-		$uids = $this->base->implode($uidsarr);
-		$arr = $this->db->fetch_all("SELECT user_id FROM ".ASH_DBTABLEPRE."protecteduser WHERE user_id IN ($uids)");
-		$puids = array();
-		foreach((array)$arr as $member) {
-			$puids[] = $member['uid'];
-		}
-		$uids = $this->base->implode(array_diff($uidsarr, $puids));
-		if($uids) {
-			$this->db->query("DELETE FROM ".ASH_DBTABLEPRE."user WHERE uid IN($uids)");
-			$this->db->query("DELETE FROM ".ASH_DBTABLEPRE."memberfields WHERE uid IN($uids)");
-			$this->delete_useravatar($uidsarr);
-			$this->base->load('note');
-			$_ENV['note']->add('deleteuser', "ids=$uids");
-			return $this->db->affected_rows();
-		} else {
-			return 0;
-		}
-	}
-
-	//todo
-	function delete_useravatar($uidsarr) {
-		$uidsarr = (array)$uidsarr;
-		foreach((array)$uidsarr as $uid) {
-			file_exists($avatar_file = ASH_DATADIR.'./avatar/'.$this->base->get_avatar($uid, 'big', 'real')) && unlink($avatar_file);
-			file_exists($avatar_file = ASH_DATADIR.'./avatar/'.$this->base->get_avatar($uid, 'middle', 'real')) && unlink($avatar_file);
-			file_exists($avatar_file = ASH_DATADIR.'./avatar/'.$this->base->get_avatar($uid, 'small', 'real')) && unlink($avatar_file);
-			file_exists($avatar_file = ASH_DATADIR.'./avatar/'.$this->base->get_avatar($uid, 'big')) && unlink($avatar_file);
-			file_exists($avatar_file = ASH_DATADIR.'./avatar/'.$this->base->get_avatar($uid, 'middle')) && unlink($avatar_file);
-			file_exists($avatar_file = ASH_DATADIR.'./avatar/'.$this->base->get_avatar($uid, 'small')) && unlink($avatar_file);
-		}		
+	//TODO: 
+	public function __destruct() {
+		echo 'Object was just destroyed <br>';
 	}
 	
-	function get_total_num($sqladd = '') {
-		$data = $this->db->result_first("SELECT COUNT(*) FROM ".ASH_DBTABLEPRE."user $sqladd");
-		return $data;
+	//TODO:
+	public function __set($varname, $value) {
+		$this->$varname = $value;
 	}
-
-	function get_list($page, $ppp, $totalnum, $sqladd) {
-		$start = $this->base->page_get_start($page, $ppp, $totalnum);
-		$data = $this->db->fetch_all("SELECT * FROM ".ASH_DBTABLEPRE."user $sqladd LIMIT $start, $ppp");
-		return $data;
+	
+	/**
+	 * @return the $user_id
+	 */
+	public function getUser_id() {
+		return $this->user_id;
 	}
-
-	function name2id($usernamesarr) {
-		$usernamesarr = daddslashes($usernamesarr, 1, TRUE);
-		$usernames = $this->base->implode($usernamesarr);
-		$query = $this->db->query("SELECT user_id FROM ".ASH_DBTABLEPRE."user WHERE name IN($usernames)");
-		$arr = array();
-		while($user = $this->db->fetch_array($query)) {
-			$arr[] = $user['uid'];
-		}
-		return $arr;
+	
+	/**
+	 * @param field_type $user_id
+	 */
+	public function setUser_id($user_id) {
+		$this->user_id = $user_id;
 	}
-
-	function id2name($uidarr) {
-		$arr = array();
-		$query = $this->db->query("SELECT user_id, name FROM ".ASH_DBTABLEPRE."user WHERE user_id IN (".$this->base->implode($uidarr).")");
-		while($user = $this->db->fetch_array($query)) {
-			$arr[$user['uid']] = $user['username'];
-		}
-		return $arr;
+	
+	/**
+	 * @return the $email
+	 */
+	public function getEmail() {
+		return $this->email;
 	}
-
-	//todo
-	function quescrypt($questionid, $answer) {
-		return $questionid > 0 && $answer != '' ? substr(md5($answer.md5($questionid)), 16, 8) : '';
+	
+	/**
+	 * @param field_type $email
+	 */
+	public function setEmail($email) {
+		$this->email = $email;
 	}
-
+	
+	/**
+	 * @return the $name
+	 */
+	public function getName() {
+		return $this->name;
+	}
+	
+	/**
+	 * @param field_type $name
+	 */
+	public function setName($name) {
+		$this->name = $name;
+	}
+	
+	/**
+	 * @return the $password
+	 */
+	public function getPassword() {
+		return $this->password;
+	}
+	
+	/**
+	 * @param field_type $password
+	 */
+	public function setPassword($password) {
+		$this->password = $password;
+	}
+	
+	/**
+	 * @return the $random_code
+	 */
+	public function getRandom_code() {
+		return $this->random_code;
+	}
+	
+	/**
+	 * @param field_type $random_code
+	 */
+	public function setRandom_code($random_code) {
+		$this->random_code = $random_code;
+	}
+	
+	/**
+	 * @return the $activate_status
+	 */
+	public function getActivate_status() {
+		return $this->activate_status;
+	}
+	
+	/**
+	 * @param field_type $activate_status
+	 */
+	public function setActivate_status($activate_status) {
+		$this->activate_status = $activate_status;
+	}
+	
+	/**
+	 * @return the $expired_time
+	 */
+	public function getExpired_time() {
+		return $this->expired_time;
+	}
+	
+	/**
+	 * @param field_type $expired_time
+	 */
+	public function setExpired_time($expired_time) {
+		$this->expired_time = $expired_time;
+	}
 }
 
 ?>
